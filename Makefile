@@ -82,6 +82,14 @@ test-e2e: ## Run openshift specific e2e test
 test-e2e-periodic: ## Run openshift specific periodic e2e test
 	hack/ci-integration.sh $(GINKGO_ARGS) --label-filter=periodic -p
 
+.PHONY: test-e2e-disruptive
+test-e2e-disruptive: ## Run openshift distuptive e2e test
+	hack/ci-integration.sh $(GINKGO_ARGS) --label-filter='disruptive' -p
+
+.PHONY: test-e2e-parallel
+test-e2e-parallel: ## Run openshift parallel e2e test
+	hack/ci-integration.sh $(GINKGO_ARGS) --label-filter='!disruptive' -p
+	
 .PHONY: help
 help:
 	@grep -E '^[a-zA-Z/0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'

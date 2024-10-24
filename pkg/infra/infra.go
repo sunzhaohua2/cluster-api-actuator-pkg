@@ -147,7 +147,7 @@ func deleteObjects(client runtimeclient.Client, delObjects map[string]runtimecli
 	return nil
 }
 
-var _ = Describe("Managed cluster should", framework.LabelMachines, func() {
+var _ = Describe("Managed cluster should", framework.LabelMachines, framework.LabelDisruptive, func() {
 	var client runtimeclient.Client
 	var ctx context.Context
 	var machineSet *machinev1.MachineSet
