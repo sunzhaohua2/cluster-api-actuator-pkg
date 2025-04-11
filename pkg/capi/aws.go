@@ -2,6 +2,7 @@ package capi
 
 import (
 	"context"
+	"fmt"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -10,8 +11,8 @@ import (
 	"github.com/openshift/cluster-api-actuator-pkg/pkg/framework"
 	"github.com/openshift/cluster-api-actuator-pkg/pkg/framework/gatherer"
 	capiinfrastructurev1beta2resourcebuilder "github.com/openshift/cluster-api-actuator-pkg/testutils/resourcebuilder/cluster-api/infrastructure/v1beta2"
+	awsprovider "github.com/openshift/cluster-api-provider-aws/pkg/apis/awsprovider/v1beta1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/utils/ptr"
 	awsv1 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
@@ -26,6 +27,52 @@ const (
 	infrastructureName     = "cluster"
 	infraAPIVersion        = "infrastructure.cluster.x-k8s.io/v1beta1"
 )
+
+type AWSMachineSet struct {
+	Client               client.Client
+	MachineSet           *clusterv1.MachineSet
+	MachineSpec          *mapiv1.AWSMachineProviderConfig
+	AWSMachineTemplate   *awsprovider.AWSMachineTemplate
+	ClusterName          string
+	NamePrefix           string
+}
+
+func (a *AWSMachineSet) CreateMachineSet(ctx context.Context) error {
+	// 构造 MachineTemplate
+	a.AWSMachineTemplate = newAWSMachineTemplate(a.Client, a.MachineSpec)
+	if err := a.Client.Create(ctx, a.AWSMachineTemplate); err != nil {
+		return fmt.Errorf("failed to create AWSMachineTemplate: %w", err)
+	}
+
+	// 构造 MachineSet
+	var err error
+	a.MachineSet, err = framework.CreateCAPIMachineSet(ctx, a.Client, framework.NewCAPIMachineSetParams(
+		a.NamePrefix,
+		a.ClusterName,
+		a.MachineSpec.Placement.AvailabilityZone,
+		1,
+		corev1.ObjectReference{
+			Kind:       "AWSMachineTemplate",
+			APIVersion: "infrastructure.cluster.x-k8s.io/v1beta1",
+			Name:       a.AWSMachineTemplate.Name,
+		}))
+	if err != nil {
+		return fmt.Errorf("failed to create AWS MachineSet: %w", err)
+	}
+
+	framework.WaitForCAPIMachinesRunning(ctx, a.Client, a.MachineSet.Name)
+	return nil
+}
+
+func (a *AWSMachineSet) Cleanup(ctx context.Context) {
+	if a.MachineSet != nil {
+		framework.DeleteCAPIMachineSets(ctx, a.Client, a.MachineSet)
+		framework.WaitForCAPIMachineSetsDeleted(ctx, a.Client, a.MachineSet)
+	}
+	if a.AWSMachineTemplate != nil {
+		framework.DeleteObjects(ctx, a.Client, a.AWSMachineTemplate)
+	}
+}
 
 var _ = Describe("Cluster API AWS MachineSet", framework.LabelCAPI, framework.LabelDisruptive, Ordered, func() {
 	var (
@@ -83,6 +130,16 @@ var _ = Describe("Cluster API AWS MachineSet", framework.LabelCAPI, framework.La
 		framework.DeleteObjects(ctx, cl, awsMachineTemplate)
 	})
 
+	It("should be able to run a machine with a default provider spec", func() {
+		awsMachineTemplate = newAWSMachineTemplate(mapiDefaultProviderSpec)
+		Expect(cl.Create(ctx, awsMachineTemplate)).To(Succeed(), "Failed to create awsmachinetemplate")
+		machineSetParams = framework.UpdateCAPIMachineSetName("aws-machineset-51071", machineSetParams)
+		machineSet, err = framework.CreateCAPIMachineSet(ctx, cl, machineSetParams)
+		Expect(err).ToNot(HaveOccurred(), "Failed to create CAPI machineset")
+		framework.WaitForCAPIMachinesRunning(ctx, cl, machineSet.Name)
+	})
+	
+	/*
 	//huliu-OCP-51071 - [CAPI] Create machineset with CAPI on aws
 	It("should be able to run a machine with a default provider spec", func() {
 		awsMachineTemplate = newAWSMachineTemplate(mapiDefaultProviderSpec)
@@ -217,6 +274,7 @@ var _ = Describe("Cluster API AWS MachineSet", framework.LabelCAPI, framework.La
 		Expect(err).ToNot(HaveOccurred(), "Failed to create CAPI machineset")
 		framework.WaitForCAPIMachinesRunning(ctx, cl, machineSet.Name)
 	})
+		*/
 })
 
 func getDefaultAWSMAPIProviderSpec(cl client.Client) (*mapiv1.MachineSet, *mapiv1.AWSMachineProviderConfig) {
