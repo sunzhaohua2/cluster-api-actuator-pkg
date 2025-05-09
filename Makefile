@@ -35,7 +35,7 @@ else
 	  -e "GO111MODULE=$(GO111MODULE)" \
 	  -e "GOFLAGS=$(GOFLAGS)" \
 	  -e "GOPROXY=$(GOPROXY)" \
-	  registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.23-openshift-4.19
+	  registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.23-openshift-4.20
   IMAGE_BUILD_CMD = $(ENGINE) build
 endif
 
