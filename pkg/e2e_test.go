@@ -27,6 +27,7 @@ import (
 	_ "github.com/openshift/cluster-api-actuator-pkg/pkg/mapi"
 	_ "github.com/openshift/cluster-api-actuator-pkg/pkg/operators"
 	_ "github.com/openshift/cluster-api-actuator-pkg/pkg/providers"
+	_ "github.com/openshift/cluster-api-actuator-pkg/pkg/unified"
 )
 
 func init() {
