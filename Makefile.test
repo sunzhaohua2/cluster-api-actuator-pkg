@@ -1,0 +1,74 @@
+# 测试专用的Makefile
+# 用于运行不同后端配置的测试
+
+.PHONY: test-mapi test-capi test-mapi-with-capi-auth test-capi-with-mapi-auth test-all
+
+# 默认测试：使用MAPI后端和MAPI权威API
+test-mapi:
+	@echo "Running tests with MAPI backend and MAPI authoritative API"
+	TEST_BACKEND_TYPE=MAPI TEST_AUTHORITATIVE_API=MAPI go test -v ./cluster-capi-operator/e2e/ -ginkgo.v
+
+# 使用CAPI后端和CAPI权威API
+test-capi:
+	@echo "Running tests with CAPI backend and CAPI authoritative API"
+	TEST_BACKEND_TYPE=CAPI TEST_AUTHORITATIVE_API=CAPI go test -v ./cluster-capi-operator/e2e/ -ginkgo.v
+
+# 使用MAPI后端但CAPI权威API（测试转换层）
+test-mapi-with-capi-auth:
+	@echo "Running tests with MAPI backend but CAPI authoritative API (testing conversion layer)"
+	TEST_BACKEND_TYPE=MAPI TEST_AUTHORITATIVE_API=CAPI go test -v ./cluster-capi-operator/e2e/ -ginkgo.v
+
+# 使用CAPI后端但MAPI权威API（测试转换层）
+test-capi-with-mapi-auth:
+	@echo "Running tests with CAPI backend but MAPI authoritative API (testing conversion layer)"
+	TEST_BACKEND_TYPE=CAPI TEST_AUTHORITATIVE_API=MAPI go test -v ./cluster-capi-operator/e2e/ -ginkgo.v
+
+# 运行所有测试配置
+test-all: test-mapi test-capi test-mapi-with-capi-auth test-capi-with-mapi-auth
+	@echo "All test configurations completed"
+
+# 运行特定的测试套件
+test-unified:
+	@echo "Running unified test suite"
+	go test -v ./cluster-capi-operator/e2e/ -ginkgo.focus="Unified Machine API Tests" -ginkgo.v
+
+# 运行转换层测试
+test-conversion:
+	@echo "Running conversion layer tests"
+	TEST_BACKEND_TYPE=MAPI TEST_AUTHORITATIVE_API=CAPI go test -v ./cluster-capi-operator/e2e/ -ginkgo.focus="should test conversion layer when enabled" -ginkgo.v
+
+# 清理测试资源
+clean-test:
+	@echo "Cleaning up test resources"
+	kubectl delete machinesets --all -n openshift-machine-api --ignore-not-found=true
+	kubectl delete machinesets --all -n openshift-cluster-api --ignore-not-found=true
+
+# 显示测试配置
+show-config:
+	@echo "Current test configuration:"
+	@echo "TEST_BACKEND_TYPE: $(or $(TEST_BACKEND_TYPE),MAPI)"
+	@echo "TEST_AUTHORITATIVE_API: $(or $(TEST_AUTHORITATIVE_API),MAPI)"
+	@echo "Enable conversion layer: $(if $(filter-out $(TEST_BACKEND_TYPE),$(TEST_AUTHORITATIVE_API)),true,false)"
+
+# 帮助信息
+help:
+	@echo "Available test targets:"
+	@echo "  test-mapi                    - Run tests with MAPI backend and MAPI authoritative API"
+	@echo "  test-capi                    - Run tests with CAPI backend and CAPI authoritative API"
+	@echo "  test-mapi-with-capi-auth    - Run tests with MAPI backend but CAPI authoritative API"
+	@echo "  test-capi-with-mapi-auth    - Run tests with CAPI backend but MAPI authoritative API"
+	@echo "  test-all                     - Run all test configurations"
+	@echo "  test-unified                 - Run unified test suite"
+	@echo "  test-conversion              - Run conversion layer tests"
+	@echo "  clean-test                   - Clean up test resources"
+	@echo "  show-config                  - Show current test configuration"
+	@echo "  help                         - Show this help message"
+	@echo ""
+	@echo "Environment variables:"
+	@echo "  TEST_BACKEND_TYPE           - Set backend type (MAPI or CAPI)"
+	@echo "  TEST_AUTHORITATIVE_API      - Set authoritative API type (MAPI or CAPI)"
+	@echo ""
+	@echo "Examples:"
+	@echo "  make test-mapi-with-capi-auth"
+	@echo "  TEST_BACKEND_TYPE=CAPI make test-mapi"
+	@echo "  make test-all"
