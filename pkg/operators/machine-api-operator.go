@@ -340,5 +340,27 @@ var _ = Describe(
 
 			By("Removing the mitm-proxy")
 			framework.DeleteProxy(client)
+
+			By("Waiting for all nodes to become ready and schedulable again")
+			Eventually(func() (bool, error) {
+				readyNodes, err := framework.GetReadyAndSchedulableNodes(client)
+				if err != nil {
+					return false, err
+				}
+
+				nodes, err := framework.GetNodes(client)
+				if err != nil {
+					return false, err
+				}
+
+				return len(readyNodes) == len(nodes), nil
+			}, framework.WaitOverLong, framework.RetryMedium).Should(BeTrue(), "Failed to wait for all nodes to become ready and schedulable")
+
+			By("waiting for all cluster operators to become available")
+			Eventually(client.List(ctx, coList)).Should(Succeed(), "failed to list ClusterOperators.")
+			for _, co := range coList.Items {
+				Expect(framework.WaitForStatusAvailableOverLong(ctx, client, co.Name)).To(BeTrue(),
+					"Failed to wait for %s Cluster Operator to become available", co.Name)
+			}
 		})
 	})
