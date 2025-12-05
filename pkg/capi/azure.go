@@ -194,7 +194,9 @@ func newAzureMachineTemplate(client runtimeclient.Client, name string, mapiProvi
 	Expect(mapiProviderSpec).ToNot(BeNil(), "expected the mapi ProviderSpec to not be nil")
 	Expect(mapiProviderSpec.Subnet).ToNot(BeEmpty(), "expected the mapi Subnet to not be empty")
 	Expect(mapiProviderSpec.AcceleratedNetworking).ToNot(BeNil(), "expected the mapi AcceleratedNetworking to not be nil")
-	Expect(mapiProviderSpec.Image.ResourceID).ToNot(BeEmpty(), "expected the mapi ResourceID to not be empty")
+	// Image can be either ResourceID (gallery image) or marketplace image (Publisher/Offer/SKU/Version)
+	Expect(mapiProviderSpec.Image.ResourceID != "" || mapiProviderSpec.Image.Publisher != "").To(BeTrue(),
+		"expected the mapi Image to have either ResourceID or Publisher/Offer/SKU/Version")
 	Expect(mapiProviderSpec.OSDisk.ManagedDisk.StorageAccountType).ToNot(BeEmpty(), "expected the mapi StorageAccountType to not be empty")
 	Expect(mapiProviderSpec.OSDisk.DiskSizeGB).To(BeNumerically(">", 0), "expected the mapi DiskSizeGB > 0")
 	Expect(mapiProviderSpec.OSDisk.OSType).ToNot(BeEmpty(), "expected the mapi OSType to not be empty")
@@ -206,7 +208,28 @@ func newAzureMachineTemplate(client runtimeclient.Client, name string, mapiProvi
 	Expect(err).To(BeNil(), "capz-manager-bootstrap-credentials secret should exist")
 
 	subscriptionID := azureCredentialsSecret.Data["azure_subscription_id"]
-	azureImageID := fmt.Sprintf("/subscriptions/%s%s", subscriptionID, mapiProviderSpec.Image.ResourceID)
+
+	// Construct CAPZ Image based on MAPI Image format
+	var capiImage *azurev1.Image
+	if mapiProviderSpec.Image.ResourceID != "" {
+		// Gallery image: use ResourceID
+		azureImageID := fmt.Sprintf("/subscriptions/%s%s", subscriptionID, mapiProviderSpec.Image.ResourceID)
+		capiImage = &azurev1.Image{
+			ID: &azureImageID,
+		}
+	} else {
+		// Marketplace image: use Publisher/Offer/SKU/Version
+		capiImage = &azurev1.Image{
+			Marketplace: &azurev1.AzureMarketplaceImage{
+				ImagePlan: azurev1.ImagePlan{
+					Publisher: mapiProviderSpec.Image.Publisher,
+					Offer:     mapiProviderSpec.Image.Offer,
+					SKU:       mapiProviderSpec.Image.SKU,
+				},
+				Version: mapiProviderSpec.Image.Version,
+			},
+		}
+	}
 
 	var (
 		identity               = azurev1.VMIdentityNone
@@ -233,9 +256,7 @@ func newAzureMachineTemplate(client runtimeclient.Client, name string, mapiProvi
 				AcceleratedNetworking: &mapiProviderSpec.AcceleratedNetworking,
 			},
 		},
-		Image: &azurev1.Image{
-			ID: &azureImageID,
-		},
+		Image: capiImage,
 		OSDisk: azurev1.OSDisk{
 			DiskSizeGB: &mapiProviderSpec.OSDisk.DiskSizeGB,
 			ManagedDisk: &azurev1.ManagedDiskParameters{
