@@ -13,6 +13,7 @@ import (
 	"github.com/openshift/cluster-api-actuator-pkg/pkg/framework"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ptr "k8s.io/utils/ptr"
 	azurev1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
@@ -144,6 +145,107 @@ var _ = Describe("Cluster API Azure MachineSet", framework.LabelCAPI, framework.
 
 		By("Verifying the accelerated network configuration on the created Azure MachineTemplate")
 		Expect(azureMachineTemplate.Spec.Template.Spec.NetworkInterfaces[0].AcceleratedNetworking).To(Equal(ptr.To(true)))
+	})
+
+	// OCPBUGS-66244 - [CAPI] Confidential VM can be created with minimal providerSpec (no Image specified)
+	// author: zhsun@redhat.com
+	It("should be able to create Confidential VM with minimal providerSpec", func() {
+		// Create a minimal MAPI Machine with SecurityProfile but without Image
+		// The webhook should default to gallery image for Confidential VMs
+		minimalMachine := &mapiv1.Machine{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-confidential-vm-minimal",
+				Namespace: framework.MachineAPINamespace,
+				Labels: map[string]string{
+					"machine.openshift.io/cluster-api-machine-role": "worker",
+					"machine.openshift.io/cluster-api-machine-type": "worker",
+				},
+			},
+			Spec: mapiv1.MachineSpec{
+				ProviderSpec: mapiv1.ProviderSpec{
+					Value: &runtime.RawExtension{
+						Raw: []byte(fmt.Sprintf(`{
+							"apiVersion": "machine.openshift.io/v1beta1",
+							"kind": "AzureMachineProviderSpec",
+							"location": "%s",
+							"vmSize": "Standard_DC2s_v3",
+							"vnet": "%s",
+							"subnet": "%s",
+							"networkResourceGroup": "%s",
+							"resourceGroup": "%s",
+							"managedIdentity": "%s",
+							"securityProfile": {
+								"settings": {
+									"securityType": "ConfidentialVM",
+									"confidentialVM": {
+										"uefiSettings": {
+											"secureBoot": "Enabled",
+											"virtualizedTrustedPlatformModule": "Enabled"
+										}
+									}
+								}
+							},
+							"osDisk": {
+								"osType": "Linux",
+								"diskSizeGB": 128,
+								"managedDisk": {
+									"storageAccountType": "Premium_LRS"
+								}
+							},
+							"userDataSecret": {
+								"name": "worker-user-data"
+							}
+						}`,
+							mapiMachineSpec.Location,
+							mapiMachineSpec.Vnet,
+							mapiMachineSpec.Subnet,
+							mapiMachineSpec.NetworkResourceGroup,
+							mapiMachineSpec.ResourceGroup,
+							mapiMachineSpec.ManagedIdentity,
+						)),
+					},
+				},
+			},
+		}
+
+		By("Creating minimal MAPI Machine with SecurityProfile (Confidential VM)")
+		Expect(client.Create(ctx, minimalMachine)).To(Succeed(), "Failed to create minimal MAPI machine")
+		defer func() {
+			By("Cleaning up minimal MAPI Machine")
+			Expect(client.Delete(ctx, minimalMachine)).To(Succeed())
+		}()
+
+		// Wait for webhook to process and verify Image was defaulted to gallery image
+		Eventually(komega.Object(minimalMachine), framework.WaitShort, framework.RetryShort).Should(HaveField("Spec.ProviderSpec.Value", Not(BeNil())))
+
+		By("Verifying webhook defaulted to gallery image for Confidential VM")
+		minimalProviderSpec := &mapiv1.AzureMachineProviderSpec{}
+		Expect(yaml.Unmarshal(minimalMachine.Spec.ProviderSpec.Value.Raw, minimalProviderSpec)).To(Succeed())
+		Expect(minimalProviderSpec.Image.ResourceID).ToNot(BeEmpty(), "expected gallery image ResourceID to be set by webhook")
+		Expect(minimalProviderSpec.Image.ResourceID).To(ContainSubstring("galleries/gallery_"), "expected gallery image path")
+		Expect(minimalProviderSpec.Image.ResourceID).To(ContainSubstring("-gen2"), "expected gen2 image for Confidential VM")
+
+		// Now create CAPI resources using the defaulted spec
+		azureMachineTemplate = newAzureMachineTemplate(client, azureMachineTemplateName, minimalProviderSpec)
+		Expect(client.Create(ctx, azureMachineTemplate)).To(Succeed(), "Failed to create azuremachinetemplate")
+
+		machineSet, err = framework.CreateCAPIMachineSet(ctx, client, framework.NewCAPIMachineSetParams(
+			"azure-machineset-confidential-minimal",
+			clusterName,
+			mapiMachineSpec.Zone,
+			1,
+			corev1.ObjectReference{
+				Kind:       "AzureMachineTemplate",
+				APIVersion: "infrastructure.cluster.x-k8s.io/v1beta1",
+				Name:       azureMachineTemplateName,
+			},
+		))
+		Expect(err).ToNot(HaveOccurred(), "Failed to create CAPI machineset for Confidential VM")
+		framework.WaitForCAPIMachinesRunning(framework.GetContext(), client, machineSet.Name)
+
+		By("Verifying the Confidential VM configuration")
+		Expect(azureMachineTemplate.Spec.Template.Spec.SecurityProfile).ToNot(BeNil())
+		Expect(azureMachineTemplate.Spec.Template.Spec.SecurityProfile.SecurityType).To(Equal(azurev1.SecurityTypesConfidentialVM))
 	})
 
 	// OCP-75972 - [CAPI] Spot instance can be created successfully with capi on azure.
