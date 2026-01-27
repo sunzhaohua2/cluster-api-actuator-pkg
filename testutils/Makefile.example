@@ -1,0 +1,75 @@
+# Example Makefile for testing with minimal abstraction pattern
+# This shows how to run tests against different backends
+
+.PHONY: test-mapi test-capi test-mapi-with-capi-auth test-all-scenarios help
+
+# Test against pure MAPI (traditional scenario)
+test-mapi:
+	@echo "Running tests against MAPI backend with MAPI authority..."
+	TEST_BACKEND=mapi TEST_AUTHORITY=mapi go test -v ./...
+
+# Test against pure CAPI (future scenario)
+test-capi:
+	@echo "Running tests against CAPI backend with CAPI authority..."
+	TEST_BACKEND=capi TEST_AUTHORITY=capi go test -v ./...
+
+# Test migration scenario: MAPI backend with CAPI authority
+# This tests the conversion/sync layer
+test-mapi-with-capi-auth:
+	@echo "Running tests for migration scenario (MAPI backend + CAPI authority)..."
+	TEST_BACKEND=mapi TEST_AUTHORITY=capi go test -v ./...
+
+# Run all test scenarios (for CI)
+test-all-scenarios: test-mapi test-capi test-mapi-with-capi-auth
+	@echo "All test scenarios completed successfully!"
+
+# Test specific focus
+test-focus:
+	@echo "Running focused tests..."
+	TEST_BACKEND=$(BACKEND) TEST_AUTHORITY=$(AUTHORITY) \
+		go test -v ./... -ginkgo.focus="$(FOCUS)"
+
+# Examples:
+# make test-focus BACKEND=mapi AUTHORITY=capi FOCUS="Should scale"
+
+help:
+	@echo "Available targets:"
+	@echo "  test-mapi                 - Test pure MAPI (traditional)"
+	@echo "  test-capi                 - Test pure CAPI (future)"
+	@echo "  test-mapi-with-capi-auth  - Test migration scenario"
+	@echo "  test-all-scenarios        - Run all test scenarios"
+	@echo "  test-focus                - Run focused tests"
+	@echo ""
+	@echo "Environment variables:"
+	@echo "  TEST_BACKEND    - Backend to test (mapi or capi)"
+	@echo "  TEST_AUTHORITY  - Authoritative API (mapi or capi)"
+	@echo ""
+	@echo "Examples:"
+	@echo "  make test-mapi"
+	@echo "  make test-capi"
+	@echo "  make test-mapi-with-capi-auth"
+	@echo "  make test-focus BACKEND=capi AUTHORITY=capi FOCUS='Should scale'"
+
+# ============================================================================
+# 2030 Migration Instructions
+# ============================================================================
+#
+# When MAPI is removed in 2030, update this Makefile:
+#
+# 1. Delete test-mapi target
+# 2. Delete test-mapi-with-capi-auth target
+# 3. Rename test-capi to just "test"
+# 4. Remove TEST_BACKEND and TEST_AUTHORITY environment variables
+# 5. Simplify help text
+#
+# After migration, Makefile will look like:
+#
+# .PHONY: test help
+#
+# test:
+#     @echo "Running E2E tests..."
+#     go test -v ./...
+#
+# help:
+#     @echo "Available targets:"
+#     @echo "  test - Run all E2E tests"
